@@ -1,0 +1,77 @@
+Continue the existing AutoHeal project based on the diagnosis you just completed.
+
+Do NOT rebuild or replace existing functionality.
+
+Implement the missing built-in HTTP monitoring configuration and service-registration flow.
+
+Important architecture decision:
+The existing health-monitor.ts already performs real HTTP health checks directly against each registered service.healthEndpoint. We do NOT need Prometheus/Grafana credentials for the primary monitoring path.
+
+Implement the following:
+
+1. Monitoring configuration
+- Add a real "Built-in HTTP Health Monitoring" configuration.
+- No external provider credentials are required.
+- Persist the monitoring configuration/status server-side.
+- Replace the current hard-coded "NOT CONNECTED" status.
+- Connection status must reflect the actual saved configuration.
+- Use explicit states such as CONNECTED / NOT CONNECTED / ERROR where appropriate.
+
+2. Settings UI
+- Replace the current Configure alert placeholder with a real configuration modal/form.
+- Allow enabling/disabling built-in HTTP monitoring.
+- Save the configuration through a real backend API.
+- Show the actual connection status after saving.
+- Show useful error messages.
+- Do not use fake status.
+
+3. Backend API
+Add proper authenticated endpoints for:
+- GET monitoring configuration/status
+- POST/PATCH monitoring configuration
+- POST monitoring configuration test if useful
+
+Reuse the existing authentication and API patterns.
+
+4. Monitoring page
+- Replace the current Configure integration alert placeholder.
+- When HTTP monitoring is connected, allow the user to proceed to service registration.
+- When disconnected, clearly explain that the built-in HTTP monitor must be enabled.
+
+5. Service registration
+- Reuse the existing applications/services database and health-monitor implementation.
+- Allow registering a real service with:
+  - service name
+  - health endpoint URL
+  - expected HTTP status
+  - timeout
+  - monitoring interval
+- Do not create fake health-check records.
+- Do not create fake incidents or recovery actions.
+
+6. Connection semantics
+Do NOT define monitoringConnected simply as "service count > 0".
+A configured built-in HTTP monitoring provider should be connected independently of whether services exist.
+
+7. Preserve all existing:
+- incident detection
+- recovery rules
+- Docker recovery
+- post-recovery verification
+- Clerk authentication
+- database schema
+- API protection
+
+8. Do NOT add Prometheus/Grafana yet. We will add them later as optional observability integrations.
+
+Before finishing:
+- run API typecheck
+- run frontend typecheck
+- run production builds
+- verify configuration can be saved
+- verify the status changes correctly
+- verify service registration works
+- verify the existing health-monitor can use the registered service
+- report exactly what changed and what remains.
+
+Do not fabricate successful monitoring results.
