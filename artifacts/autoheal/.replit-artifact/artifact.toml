@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AutoHeal"
+description = "A production-oriented application reliability console for registering services, monitoring real health checks, investigating incidents, and governing safe rule-based recovery actions with AI-assisted diagnosis."
+version = "1.0.0"
+id = "artifacts/autoheal"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23850
+
+[services.development]
+run = "pnpm --filter @workspace/autoheal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/autoheal", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/autoheal/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23850"
+BASE_PATH = "/"
