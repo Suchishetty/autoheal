@@ -114,6 +114,16 @@ async function checkService(
       }
     }
   }
+  if (!healthy && nextFailureCount >= FAILURE_THRESHOLD && openIncident) {
+  await db
+    .update(incidentsTable)
+    .set({
+      failureCount: nextFailureCount,
+      severity: nextFailureCount >= 5 ? "CRITICAL" : "HIGH",
+      description: failureMessage,
+    })
+    .where(eq(incidentsTable.id, openIncident.id));
+}
 
   if (healthy && openIncident) {
     await db
