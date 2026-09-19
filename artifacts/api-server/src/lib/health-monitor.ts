@@ -27,6 +27,7 @@ async function checkService(
   options: HealthCheckOptions = {},
 ): Promise<HealthCheckResult> {
   const { recordIncident = true, triggerRecovery = true } = options;
+
   const startedAt = performance.now();
   let responseTime: number | null = null;
   let healthy = false;
@@ -35,21 +36,36 @@ async function checkService(
   try {
     const response = await fetch(service.healthEndpoint, {
       method: "GET",
-      signal: AbortSignal.timeout(Math.min(Math.max(service.timeout, 250), 30_000)),
-      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(
+        Math.min(Math.max(service.timeout, 250), 30_000),
+      ),
+      headers: {
+        accept: "application/json",
+      },
     });
+
     responseTime = Math.round(performance.now() - startedAt);
+
     healthy = response.status === service.expectedStatus;
+
     if (!healthy) {
       failureMessage = `Expected HTTP ${service.expectedStatus}, received HTTP ${response.status}`;
     }
   } catch (error) {
     responseTime = Math.round(performance.now() - startedAt);
-    failureMessage = error instanceof Error ? error.message : "Health check request failed";
+
+    failureMessage =
+      error instanceof Error
+        ? error.message
+        : "Health check request failed";
   }
 
   const checkedAt = new Date();
-  const nextFailureCount = healthy ? 0 : service.consecutiveFailures + 1;
+
+  const nextFailureCount = healthy
+    ? 0
+    : service.consecutiveFailures + 1;
+
   const nextStatus = healthy
     ? "HEALTHY"
     : nextFailureCount >= FAILURE_THRESHOLD
@@ -67,7 +83,13 @@ async function checkService(
     .where(eq(servicesTable.id, service.id));
 
   if (!recordIncident) {
-    return { healthy, responseTime, message: healthy ? `HTTP ${service.expectedStatus} verified.` : failureMessage };
+    return {
+      healthy,
+      responseTime,
+      message: healthy
+        ? `HTTP ${service.expectedStatus} verified.`
+        : failureMessage,
+    };
   }
 
   const [openIncident] = await db
@@ -78,9 +100,19 @@ async function checkService(
         eq(incidentsTable.serviceId, service.id),
         inArray(incidentsTable.status, ["OPEN", "RECOVERING"]),
       ),
-    );
+    )
+    .limit(1);
 
-  if (!healthy && nextFailureCount >= FAILURE_THRESHOLD && !openIncident) {
+  /*
+   * CREATE INCIDENT
+   * ----------------
+   * Create the incident once the service reaches the failure threshold.
+   */
+  if (
+    !healthy &&
+    nextFailureCount >= FAILURE_THRESHOLD &&
+    !openIncident
+  ) {
     const [incident] = await db
       .insert(incidentsTable)
       .values({
@@ -107,24 +139,61 @@ async function checkService(
           message: `Incident created after ${nextFailureCount} consecutive failed health checks.`,
         },
       ]);
+
       if (triggerRecovery) {
         void import("./recovery-engine")
-          .then(({ evaluateIncident }) => evaluateIncident(incident.id))
-          .catch((error: unknown) => logger.error({ error, incidentId: incident.id }, "Could not start recovery evaluation"));
+          .then(({ evaluateIncident }) =>
+            evaluateIncident(incident.id),
+          )
+          .catch((error: unknown) =>
+            logger.error(
+              {
+                error,
+                incidentId: incident.id,
+              },
+              "Could not start recovery evaluation",
+            ),
+          );
       }
     }
   }
-  if (!healthy && nextFailureCount >= FAILURE_THRESHOLD && openIncident) {
-  await db
-    .update(incidentsTable)
-    .set({
-      failureCount: nextFailureCount,
-      severity: nextFailureCount >= 5 ? "CRITICAL" : "HIGH",
-      description: failureMessage,
-    })
-    .where(eq(incidentsTable.id, openIncident.id));
-}
 
+  /*
+   * UPDATE EXISTING INCIDENT
+   * ------------------------
+   * Keep the existing incident synchronized with every
+   * subsequent failed health check.
+   */
+  if (
+    !healthy &&
+    nextFailureCount >= FAILURE_THRESHOLD &&
+    openIncident
+  ) {
+    const nextSeverity =
+      nextFailureCount >= 5 ? "CRITICAL" : "HIGH";
+
+    await db
+      .update(incidentsTable)
+      .set({
+        failureCount: nextFailureCount,
+        severity: nextSeverity,
+        description: failureMessage,
+      })
+      .where(eq(incidentsTable.id, openIncident.id));
+
+    await db.insert(incidentTimelineTable).values({
+      incidentId: openIncident.id,
+      eventType: "FAILURE_DETECTED",
+      message: `Health check failed again. Consecutive failures: ${nextFailureCount}. ${failureMessage}`,
+    });
+  }
+
+  /*
+   * RESOLVE INCIDENT
+   * ----------------
+   * If a previously failing service becomes healthy,
+   * resolve its active incident.
+   */
   if (healthy && openIncident) {
     await db
       .update(incidentsTable)
@@ -133,6 +202,7 @@ async function checkService(
         resolvedAt: checkedAt,
       })
       .where(eq(incidentsTable.id, openIncident.id));
+
     await db.insert(incidentTimelineTable).values([
       {
         incidentId: openIncident.id,
@@ -147,17 +217,32 @@ async function checkService(
     ]);
   }
 
-  return { healthy, responseTime, message: healthy ? `HTTP ${service.expectedStatus} verified.` : failureMessage };
+  return {
+    healthy,
+    responseTime,
+    message: healthy
+      ? `HTTP ${service.expectedStatus} verified.`
+      : failureMessage,
+  };
 }
 
 export async function runHealthCheckForService(
   serviceId: number,
   options: HealthCheckOptions = {},
 ): Promise<HealthCheckResult> {
-  const [service] = await db.select().from(servicesTable).where(eq(servicesTable.id, serviceId));
+  const [service] = await db
+    .select()
+    .from(servicesTable)
+    .where(eq(servicesTable.id, serviceId));
+
   if (!service) {
-    return { healthy: false, responseTime: null, message: "Service no longer exists." };
+    return {
+      healthy: false,
+      responseTime: null,
+      message: "Service no longer exists.",
+    };
   }
+
   return checkService(service, options);
 }
 
@@ -165,21 +250,34 @@ let monitorRunning = false;
 
 export async function runHealthChecks(): Promise<void> {
   if (monitorRunning) return;
+
   monitorRunning = true;
+
   try {
     const services = await db.select().from(servicesTable);
     const now = Date.now();
+
     await Promise.all(
       services
         .filter((service) => {
           if (!service.lastCheckedAt) return true;
-          return now - service.lastCheckedAt.getTime() >= Math.max(service.interval, 5) * 1000;
+
+          return (
+            now - service.lastCheckedAt.getTime() >=
+            Math.max(service.interval, 5) * 1000
+          );
         })
         .map(async (service) => {
           try {
             await checkService(service);
           } catch (error) {
-            logger.error({ error, serviceId: service.id }, "Health check processing failed");
+            logger.error(
+              {
+                error,
+                serviceId: service.id,
+              },
+              "Health check processing failed",
+            );
           }
         }),
     );
@@ -192,7 +290,10 @@ export function startHealthMonitor(): NodeJS.Timeout {
   const timer = setInterval(() => {
     void runHealthChecks();
   }, MONITOR_INTERVAL_MS);
+
   timer.unref();
+
   void runHealthChecks();
+
   return timer;
 }
