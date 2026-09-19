@@ -5,10 +5,10 @@ import { ClerkProvider, RedirectToSignIn, SignIn, SignUp, useAuth, useClerk } fr
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import {
-  Activity, AlertCircle, ArrowRight, BarChart3, Bell, Check, ChevronRight, CircleHelp,
+  Activity, AlertCircle, ArrowRight,AlertTriangle, BarChart3, Bell, Check, ChevronRight, CircleHelp,
   CloudOff, Database, ExternalLink, Gauge, KeyRound, LayoutDashboard, LifeBuoy, ListFilter,
   Loader2, LockKeyhole, Menu, MoreHorizontal, Network, Plus, RefreshCw, Search, Server,
-  Settings, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, X, Zap,
+  Settings, ShieldCheck, SlidersHorizontal, Sparkles, Pencil,Trash2, TriangleAlert, X, Zap,
 } from 'lucide-react';
 import {
   getGetApplicationQueryKey, getGetDashboardSummaryQueryKey, getGetIncidentQueryKey,
@@ -25,6 +25,17 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react';
 import { Router as WouterRouter } from 'wouter';
 import './index.css';
+function asArray<T>(value: any): T[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.applications)) return value.applications;
+  if (Array.isArray(value?.services)) return value.services;
+  if (Array.isArray(value?.incidents)) return value.incidents;
+  if (Array.isArray(value?.actions)) return value.actions;
+  if (Array.isArray(value?.rules)) return value.rules;
+  return [];
+}
 
 const queryClient = new QueryClient();
 const clerkPubKey = publishableKeyFromHost(
@@ -151,8 +162,13 @@ function Sidebar({ onClose }: { onClose?: () => void }) {
 }
 
 function IncidentCount() {
-  const { data } = useListIncidents({ status: 'OPEN' }, { query: { queryKey: getListIncidentsQueryKey({ status: 'OPEN' }), staleTime: 30000 } });
-  return data && data.length > 0 ? <span className="nav-count">{data.length}</span> : null;
+  const { data: incidentsData } = useListIncidents();
+
+  const incidents = asArray<any>(incidentsData);
+
+  return incidents.length > 0 ? (
+    <span className="nav-count">{incidents.length}</span>
+  ) : null;
 }
 
 function Shell({ children }: { children: ReactNode }) {
@@ -230,36 +246,370 @@ function ClerkQueryClientCacheInvalidator() {
 }
 
 function Applications() {
-  const qc = useQueryClient(); const { data, isLoading, isError, refetch } = useListApplications({ query: { queryKey: getListApplicationsQueryKey() } });
+  const qc = useQueryClient(); const { data, isLoading, isError, refetch } = useListApplications({ query: { queryKey: getListApplicationsQueryKey() } });const apps = asArray<any>(data);
   const create = useCreateApplication(); const del = useDeleteApplication(); const [open, setOpen] = useState(false); const [search, setSearch] = useState('');
-  const apps = (data || []).filter(a => `${a.name} ${a.description}`.toLowerCase().includes(search.toLowerCase()));
+  const filteredApps = apps.filter(a =>`${a.name} ${a.description || ''}`.toLowerCase().includes(search.toLowerCase()));
   const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); create.mutate({ data: { name: String(f.get('name')), description: String(f.get('description') || ''), environment: String(f.get('environment')) as 'development' | 'staging' | 'production', baseUrl: String(f.get('baseUrl')) } }, { onSuccess: () => { setOpen(false); qc.invalidateQueries({ queryKey: getListApplicationsQueryKey() }); } }); };
-  return <><PageHeader eyebrow="OBSERVE / APPLICATIONS" title="Applications" body="The systems you are responsible for, registered by environment." action={<Button onClick={() => setOpen(true)} data-testid="button-add-application"><Plus size={16} /> Add application</Button>} /><div className="toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search applications" data-testid="input-search-applications" /></div><button className="filter-button" data-testid="button-filter-applications"><ListFilter size={15} /> All environments</button></div>{isError ? <Failure retry={refetch} /> : isLoading ? <div className="list-stack">{[1,2,3].map(i => <Skeleton key={i} className="h-24" />)}</div> : apps.length === 0 ? <EmptyState icon={Network} title={search ? 'No matching applications' : 'No applications yet'} body={search ? 'Try a different search term.' : 'Register your first application to begin mapping service health.'} action={!search && <Button onClick={() => setOpen(true)}><Plus size={15} /> Add application</Button>} /> : <div className="list-stack">{apps.map(app => <div className="list-row" key={app.id} data-testid={`row-application-${app.id}`}><div className="row-main"><div className="app-glyph">{app.name.slice(0, 1).toUpperCase()}</div><div><Link href={`/applications/${app.id}`} className="row-title" data-testid={`link-application-${app.id}`}>{app.name}<ArrowRight size={14} /></Link><p>{app.description || 'No description provided'}</p></div></div><div className="row-meta"><span className="env">{app.environment}</span><StatusPill status={app.status} /><button className="icon-btn danger-hover" onClick={() => { if (confirm(`Delete ${app.name}?`)) del.mutate({ id: app.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListApplicationsQueryKey() }) }); }} data-testid={`button-delete-application-${app.id}`}><Trash2 size={16} /></button></div></div>)}</div>}{open && <Modal title="Register application" onClose={() => setOpen(false)}><form onSubmit={submit} className="form-grid"><Field label="Name"><input name="name" required placeholder="Payments platform" data-testid="input-application-name" /></Field><Field label="Environment"><select name="environment" defaultValue="production" data-testid="select-application-environment"><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></Field><Field label="Base URL"><input name="baseUrl" required type="url" placeholder="https://api.example.com" data-testid="input-application-url" /></Field><Field label="Description"><textarea name="description" rows={3} placeholder="What does this system do?" data-testid="input-application-description" /></Field><div className="modal-actions"><Button type="button" variant="quiet" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="spin" size={15} />} Register application</Button></div></form></Modal>}</>;
+  return <><PageHeader eyebrow="OBSERVE / APPLICATIONS" title="Applications" body="The systems you are responsible for, registered by environment." action={<Button onClick={() => setOpen(true)} data-testid="button-add-application"><Plus size={16} /> Add application</Button>} /><div className="toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search applications" data-testid="input-search-applications" /></div><button className="filter-button" data-testid="button-filter-applications"><ListFilter size={15} /> All environments</button></div>{isError ? <Failure retry={refetch} /> : isLoading ? <div className="list-stack">{[1,2,3].map(i => <Skeleton key={i} className="h-24" />)}</div> : filteredApps.length === 0 ? <EmptyState icon={Network} title={search ? 'No matching applications' : 'No applications yet'} body={search ? 'Try a different search term.' : 'Register your first application to begin mapping service health.'} action={!search && <Button onClick={() => setOpen(true)}><Plus size={15} /> Add application</Button>} /> : <div className="list-stack">{filteredApps.map(app => <div className="list-row" key={app.id} data-testid={`row-application-${app.id}`}><div className="row-main"><div className="app-glyph">{app.name.slice(0, 1).toUpperCase()}</div><div><Link href={`/applications/${app.id}`} className="row-title" data-testid={`link-application-${app.id}`}>{app.name}<ArrowRight size={14} /></Link><p>{app.description || 'No description provided'}</p></div></div><div className="row-meta"><span className="env">{app.environment}</span><StatusPill status={app.status} /><button className="icon-btn danger-hover" onClick={() => { if (confirm(`Delete ${app.name}?`)) del.mutate({ id: app.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListApplicationsQueryKey() }) }); }} data-testid={`button-delete-application-${app.id}`}><Trash2 size={16} /></button></div></div>)}</div>}{open && <Modal title="Register application" onClose={() => setOpen(false)}><form onSubmit={submit} className="form-grid"><Field label="Name"><input name="name" required placeholder="Payments platform" data-testid="input-application-name" /></Field><Field label="Environment"><select name="environment" defaultValue="production" data-testid="select-application-environment"><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></Field><Field label="Base URL"><input name="baseUrl" required type="url" placeholder="https://api.example.com" data-testid="input-application-url" /></Field><Field label="Description"><textarea name="description" rows={3} placeholder="What does this system do?" data-testid="input-application-description" /></Field><div className="modal-actions"><Button type="button" variant="quiet" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="spin" size={15} />} Register application</Button></div></form></Modal>}</>;
 }
 
 function ApplicationDetail() {
-  const { id } = useParams<{ id: string }>(); const appId = Number(id); const { data: app, isLoading, isError } = useGetApplication(appId, { query: { queryKey: getGetApplicationQueryKey(appId) } }); const { data: services } = useListServices({ applicationId: appId }, { query: { queryKey: getListServicesQueryKey({ applicationId: appId }) } }); const { data: incidents } = useListIncidents();
-  if (isLoading) return <><PageHeader eyebrow="APPLICATION" title="Loading application…" /><Skeleton className="h-48" /></>; if (isError || !app) return <Failure />;
-  const appIncidents = incidents?.filter(i => i.applicationId === appId) || [];
-  return <><Link href="/applications" className="back-link page-back" data-testid="link-back-applications"><ArrowRight size={15} /> Applications</Link><PageHeader eyebrow={`APPLICATION / ${app.environment.toUpperCase()}`} title={app.name} body={app.description || 'No description provided'} action={<StatusPill status={app.status} />} /><div className="detail-grid"><div className="panel"><div className="panel-heading"><div><span className="eyebrow">REGISTERED SERVICES</span><h2>Service surface</h2></div><Link href="/services" className="text-link" data-testid="link-manage-services">Manage <ArrowRight size={15} /></Link></div>{!services?.length ? <EmptyState icon={Server} title="No services registered" body="Add a service to start checking this application." action={<Link href="/services" className="btn btn-outline" data-testid="link-add-service-detail"><Plus size={15} /> Register service</Link>} /> : <div className="compact-list">{services.map(s => <div className="compact-row" key={s.id}><span className="service-mark"><Activity size={15} /></span><span><b>{s.name}</b><small>{s.type} · {s.endpoint}</small></span><StatusPill status={s.status} /><span className="mono response">{s.responseTime ? `${s.responseTime}ms` : '—'}</span></div>)}</div>}</div><div className="panel"><div className="panel-heading"><div><span className="eyebrow">INCIDENT CONTEXT</span><h2>Related incidents</h2></div><Link href="/incidents" className="text-link" data-testid="link-detail-incidents">View all <ArrowRight size={15} /></Link></div>{!appIncidents.length ? <EmptyState icon={TriangleAlert} title="No incidents for this app" body="That is good news. If something changes, it will appear here." /> : <div className="compact-list">{appIncidents.slice(0, 5).map(i => <Link href={`/incidents/${i.id}`} className="compact-row" key={i.id} data-testid={`link-detail-incident-${i.id}`}><span className="incident-mark"><TriangleAlert size={15} /></span><span><b>{i.type}</b><small>{i.description}</small></span><StatusPill status={i.severity} /><ChevronRight size={15} /></Link>)}</div>}</div></div></>;
+  const { id } = useParams<{ id: string }>();
+  const appId = Number(id);
+
+  const {
+    data: app,
+    isLoading,
+    isError,
+  } = useGetApplication(appId, {
+    query: {
+      queryKey: getGetApplicationQueryKey(appId),
+    },
+  });
+
+  const { data: servicesData } = useListServices(
+    { applicationId: appId },
+    {
+      query: {
+        queryKey: getListServicesQueryKey({
+          applicationId: appId,
+        }),
+      },
+    }
+  );
+
+  const { data: incidentsData } = useListIncidents();
+
+  const services = asArray<any>(servicesData);
+  const incidents = asArray<any>(incidentsData);
+
+  const appIncidents = incidents.filter(
+    (i: any) => i.applicationId === appId
+  );
+
+  // Fix: app may be undefined while loading
+  if (isLoading) {
+    return (
+      <EmptyState
+        icon={Activity}
+        title="Loading application..."
+        body="Please wait while the application details are loaded."
+      />
+    );
+  }
+
+  // Fix: handle missing/failed application
+  if (isError || !app) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title="Application not found"
+        body="The requested application could not be loaded."
+      />
+    );
+  }
+
+  return (
+    <>
+      <Link
+        href="/applications"
+        className="back-link page-back"
+        data-testid="link-back-applications"
+      >
+        <ArrowRight size={15} /> Applications
+      </Link>
+
+      <PageHeader
+        eyebrow={`APPLICATION / ${app.environment.toUpperCase()}`}
+        title={app.name}
+        body={app.description || "No description provided"}
+        action={<StatusPill status={app.status} />}
+      />
+
+      <div className="detail-grid">
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">REGISTERED SERVICES</span>
+              <h2>Service surface</h2>
+            </div>
+
+            <Link
+              href="/services"
+              className="text-link"
+              data-testid="link-manage-services"
+            >
+              Manage <ArrowRight size={15} />
+            </Link>
+          </div>
+
+          {!services.length ? (
+            <EmptyState
+              icon={Server}
+              title="No services registered"
+              body="Add a service to start checking this application."
+              action={
+                <Link
+                  href="/services"
+                  className="btn btn-outline"
+                  data-testid="link-add-service-detail"
+                >
+                  <Plus size={15} /> Register service
+                </Link>
+              }
+            />
+          ) : (
+            <div className="compact-list">
+              {services.map((s: any) => (
+                <div className="compact-row" key={s.id}>
+                  <span className="service-mark">
+                    <Activity size={15} />
+                  </span>
+
+                  <span>
+                    <b>{s.name}</b>
+                    <small>
+                      {s.type} · {s.endpoint}
+                    </small>
+                  </span>
+
+                  <StatusPill status={s.status} />
+
+                  <span className="mono response">
+                    {s.responseTime ? `${s.responseTime}ms` : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <span className="eyebrow">INCIDENT CONTEXT</span>
+              <h2>Related incidents</h2>
+            </div>
+
+            <Link
+              href="/incidents"
+              className="text-link"
+              data-testid="link-detail-incidents"
+            >
+              View all <ArrowRight size={15} />
+            </Link>
+          </div>
+
+          {!appIncidents.length ? (
+            <EmptyState
+              icon={TriangleAlert}
+              title="No incidents for this app"
+              body="That is good news. If something changes, it will appear here."
+            />
+          ) : (
+            <div className="compact-list">
+              {appIncidents.slice(0, 5).map((i: any) => (
+                <Link
+                  href={`/incidents/${i.id}`}
+                  className="compact-row"
+                  key={i.id}
+                  data-testid={`link-detail-incident-${i.id}`}
+                >
+                  <span className="incident-mark">
+                    <TriangleAlert size={15} />
+                  </span>
+
+                  <span>
+                    <b>{i.type}</b>
+                    <small>{i.description}</small>
+                  </span>
+
+                  <StatusPill status={i.severity} />
+
+                  <ChevronRight size={15} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }
 
 function Services() {
-  const qc = useQueryClient(); const { data: services, isLoading, isError, refetch } = useListServices(undefined, { query: { queryKey: getListServicesQueryKey() } }); const { data: apps } = useListApplications(); const create = useCreateService(); const del = useDeleteService(); const [open, setOpen] = useState(false); const [search, setSearch] = useState('');
-  const list = (services || []).filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
-  const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); create.mutate({ data: { applicationId: Number(f.get('applicationId')), name: String(f.get('name')), type: String(f.get('type')), endpoint: String(f.get('endpoint')), healthEndpoint: String(f.get('healthEndpoint')), expectedStatus: Number(f.get('expectedStatus')), timeout: Number(f.get('timeout')), interval: Number(f.get('interval')) } }, { onSuccess: () => { setOpen(false); qc.invalidateQueries({ queryKey: getListServicesQueryKey() }); } }); };
-  return <><PageHeader eyebrow="OBSERVE / SERVICES" title="Services" body="Health-check configuration and the last known signal for every service." action={<Button onClick={() => setOpen(true)} data-testid="button-add-service"><Plus size={16} /> Register service</Button>} /><div className="toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services" data-testid="input-search-services" /></div><span className="toolbar-note"><ShieldCheck size={15} /> Status is only real when monitoring is connected</span></div>{isError ? <Failure retry={refetch} /> : isLoading ? <Skeleton className="h-72" /> : !list.length ? <EmptyState icon={Server} title="No services registered" body="Register a service and define exactly what healthy means." action={<Button onClick={() => setOpen(true)}><Plus size={15} /> Register service</Button>} /> : <div className="table-card"><div className="table-head"><span>SERVICE</span><span>APPLICATION</span><span>HEALTH CHECK</span><span>LAST SIGNAL</span><span>STATUS</span><span /></div>{list.map(s => <div className="table-row" key={s.id} data-testid={`row-service-${s.id}`}><div className="service-cell"><span className="service-mark"><Activity size={14} /></span><span><b>{s.name}</b><small>{s.type}</small></span></div><span>{apps?.find(a => a.id === s.applicationId)?.name || `Application #${s.applicationId}`}</span><span className="mono">{s.healthEndpoint}<small>every {s.interval}s · {s.timeout}ms timeout</small></span><span className="mono">{s.responseTime ? `${s.responseTime}ms` : 'No data'}<small>{s.lastCheckedAt ? new Date(s.lastCheckedAt).toLocaleString() : 'Not connected'}</small></span><StatusPill status={s.status} /><button className="icon-btn danger-hover" onClick={() => { if (confirm(`Delete ${s.name}?`)) del.mutate({ id: s.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListServicesQueryKey() }) }); }} data-testid={`button-delete-service-${s.id}`}><Trash2 size={16} /></button></div>)}</div>}{open && <Modal title="Register service" onClose={() => setOpen(false)}><form onSubmit={submit} className="form-grid"><Field label="Application"><select name="applicationId" required data-testid="select-service-application"><option value="">Select application</option>{apps?.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field><Field label="Service name"><input name="name" required placeholder="payments-api" data-testid="input-service-name" /></Field><Field label="Type"><input name="type" required placeholder="HTTP API" data-testid="input-service-type" /></Field><Field label="Endpoint"><input name="endpoint" required type="url" placeholder="https://api.example.com/payments" data-testid="input-service-endpoint" /></Field><Field label="Health endpoint"><input name="healthEndpoint" required type="url" placeholder="https://api.example.com/health" data-testid="input-service-health-endpoint" /></Field><div className="form-split"><Field label="Expected status"><input name="expectedStatus" type="number" defaultValue="200" data-testid="input-service-expected-status" /></Field><Field label="Timeout (ms)"><input name="timeout" type="number" defaultValue="5000" data-testid="input-service-timeout" /></Field><Field label="Interval (sec)"><input name="interval" type="number" defaultValue="60" data-testid="input-service-interval" /></Field></div><div className="modal-actions"><Button type="button" variant="quiet" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="spin" size={15} />} Register service</Button></div></form></Modal>}</>;
+  const qc = useQueryClient(); const { data: servicesData, isLoading, isError, refetch } =
+  useListServices(undefined, {
+    query: { queryKey: getListServicesQueryKey() }
+  }); const { data: appsData } = useListApplications();
+   const services = asArray<any>(servicesData);
+   const apps = asArray<any>(appsData);
+   const create = useCreateService();
+   const del = useDeleteService(); const [open, setOpen] = useState(false); const [search, setSearch] = useState('');
+   const list = services.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+   const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); create.mutate({ data: { applicationId: Number(f.get('applicationId')), name: String(f.get('name')), type: String(f.get('type')), endpoint: String(f.get('endpoint')), healthEndpoint: String(f.get('healthEndpoint')), expectedStatus: Number(f.get('expectedStatus')), timeout: Number(f.get('timeout')), interval: Number(f.get('interval')) } }, { onSuccess: () => { setOpen(false); qc.invalidateQueries({ queryKey: getListServicesQueryKey() }); } }); };
+   return <><PageHeader eyebrow="OBSERVE / SERVICES" title="Services" body="Health-check configuration and the last known signal for every service." action={<Button onClick={() => setOpen(true)} data-testid="button-add-service"><Plus size={16} /> Register service</Button>} /><div className="toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search services" data-testid="input-search-services" /></div><span className="toolbar-note"><ShieldCheck size={15} /> Status is only real when monitoring is connected</span></div>{isError ? <Failure retry={refetch} /> : isLoading ? <Skeleton className="h-72" /> : !list.length ? <EmptyState icon={Server} title="No services registered" body="Register a service and define exactly what healthy means." action={<Button onClick={() => setOpen(true)}><Plus size={15} /> Register service</Button>} /> : <div className="table-card"><div className="table-head"><span>SERVICE</span><span>APPLICATION</span><span>HEALTH CHECK</span><span>LAST SIGNAL</span><span>STATUS</span><span /></div>{list.map(s => <div className="table-row" key={s.id} data-testid={`row-service-${s.id}`}><div className="service-cell"><span className="service-mark"><Activity size={14} /></span><span><b>{s.name}</b><small>{s.type}</small></span></div><span>{apps?.find(a => a.id === s.applicationId)?.name || `Application #${s.applicationId}`}</span><span className="mono">{s.healthEndpoint}<small>every {s.interval}s · {s.timeout}ms timeout</small></span><span className="mono">{s.responseTime ? `${s.responseTime}ms` : 'No data'}<small>{s.lastCheckedAt ? new Date(s.lastCheckedAt).toLocaleString() : 'Not connected'}</small></span><StatusPill status={s.status} /><button className="icon-btn danger-hover" onClick={() => { if (confirm(`Delete ${s.name}?`)) del.mutate({ id: s.id }, { onSuccess: () => qc.invalidateQueries({ queryKey: getListServicesQueryKey() }) }); }} data-testid={`button-delete-service-${s.id}`}><Trash2 size={16} /></button></div>)}</div>}{open && <Modal title="Register service" onClose={() => setOpen(false)}><form onSubmit={submit} className="form-grid"><Field label="Application"><select name="applicationId" required data-testid="select-service-application"><option value="">Select application</option>{apps?.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field><Field label="Service name"><input name="name" required placeholder="payments-api" data-testid="input-service-name" /></Field><Field label="Type"><input name="type" required placeholder="HTTP API" data-testid="input-service-type" /></Field><Field label="Endpoint"><input name="endpoint" required type="url" placeholder="https://api.example.com/payments" data-testid="input-service-endpoint" /></Field><Field label="Health endpoint"><input name="healthEndpoint" required type="url" placeholder="https://api.example.com/health" data-testid="input-service-health-endpoint" /></Field><div className="form-split"><Field label="Expected status"><input name="expectedStatus" type="number" defaultValue="200" data-testid="input-service-expected-status" /></Field><Field label="Timeout (ms)"><input name="timeout" type="number" defaultValue="5000" data-testid="input-service-timeout" /></Field><Field label="Interval (sec)"><input name="interval" type="number" defaultValue="60" data-testid="input-service-interval" /></Field></div><div className="modal-actions"><Button type="button" variant="quiet" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="spin" size={15} />} Register service</Button></div></form></Modal>}</>;
 }
 
 function Monitoring() {
-  const { data: health, isLoading, refetch } = useGetDashboardSummary(); const { data: services } = useListServices(); const connected = !!health?.monitoringConnected;
-  return <><PageHeader eyebrow="OBSERVE / MONITORING" title="Monitoring" body="Know whether your health signals are connected before you act." action={<Button variant="outline" onClick={() => refetch()}><RefreshCw size={15} /> Test connection</Button>} /><div className={`connection-card ${connected ? 'connected' : ''}`}><div className="connection-badge"><span className="connection-pulse" /><StatusPill status={connected} /></div><h2>{isLoading ? 'Checking connection…' : connected ? 'Monitoring is connected' : 'Monitoring is not connected'}</h2><p>{health?.monitoringMessage || 'No provider connection has been configured. Service states will remain explicit until one is available.'}</p>{!connected && <Button onClick={() => alert('Configure a monitoring provider in Settings when an integration is available.')} data-testid="button-configure-monitoring"><Settings size={15} /> Configure integration</Button>}</div><div className="panel"><div className="panel-heading"><div><span className="eyebrow">COVERAGE</span><h2>Health-check overview</h2></div><span className="mono">{services?.length ?? 0} services</span></div>{!services?.length ? <EmptyState icon={Activity} title="No health checks yet" body="Register services to see their health-check configuration here." /> : <div className="coverage-list">{services.map(s => <div className="coverage-row" key={s.id}><span className={`coverage-bar ${s.status === 'HEALTHY' ? 'good' : s.status === 'NOT_CONNECTED' ? 'empty' : 'warn'}`} /><div><b>{s.name}</b><small>{s.healthEndpoint}</small></div><span className="mono">{s.responseTime ? `${s.responseTime}ms` : 'No data'}</span><StatusPill status={s.status} /></div>)}</div>}</div></>;
-}
+  const { data: health, isLoading, refetch } = useGetDashboardSummary(); const { data: servicesData } = useListServices(); const services = Array.isArray(servicesData)  ? servicesData : Array.isArray((servicesData as any)?.data) ? (servicesData as any).data : Array.isArray((servicesData as any)?.services) ? (servicesData as any).services  : [];  const connected = !!health?.monitoringConnected;
+  return (<><PageHeader eyebrow="OBSERVE / MONITORING" title="Monitoring" body="Know whether your health signals are connected before you act." action={<Button variant="outline" onClick={() => refetch()}><RefreshCw size={15} /> Test connection </Button> }/><div className={`connection-card ${connected ? 'connected' : ''}`}><div className="connection-badge"><span className="connection-pulse" /><StatusPill status={connected} /></div><h2>{isLoading ? 'Checking connection…': connected ? 'Monitoring is connected': 'Monitoring is not connected'} </h2><p>{health?.monitoringMessage ||'No provider connection has been configured. Service states will remain explicit until one is available.'}</p>{!connected && (<Button onClick={() => alert('Configure a monitoring provider in Settings when an integration is available.')}data-testid="button-configure-monitoring" ><Settings size={15} /> Configure integration</Button>)}</div><div className="panel"><div className="panel-heading"><div><span className="eyebrow">COVERAGE</span><h2>Health-check overview</h2></div><span className="mono">
+            {services.length} services
+          </span>
+        </div>
 
+        {!services.length ? (
+          <EmptyState
+            icon={Activity}
+            title="No health checks yet"
+            body="Register services to see their health-check configuration here."
+          />
+        ) : (
+          <div className="coverage-list">
+            {services.map((s: any) => (
+              <div className="coverage-row" key={s.id}>
+                <span
+                  className={`coverage-bar ${
+                    s.status === 'HEALTHY'
+                      ? 'good'
+                      : s.status === 'NOT_CONNECTED'
+                        ? 'empty'
+                        : 'warn'
+                  }`}
+                />
+
+                <div>
+                  <b>{s.name}</b>
+                  <small>{s.healthEndpoint}</small>
+                </div>
+
+                <span className="mono">
+                  {s.responseTime ? `${s.responseTime}ms` : 'No data'}
+                </span>
+
+                <StatusPill status={s.status} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 function Incidents() {
-  const [status, setStatus] = useState<string>(''); const params = status ? { status: status as any } : undefined; const { data, isLoading, isError, refetch } = useListIncidents(params, { query: { queryKey: getListIncidentsQueryKey(params) } }); const { data: apps } = useListApplications(); const [search, setSearch] = useState('');
-  const incidents = (data || []).filter(i => `${i.type} ${i.description}`.toLowerCase().includes(search.toLowerCase()));
-  return <><PageHeader eyebrow="RESPOND / INCIDENTS" title="Incidents" body="An honest queue for production events — from first signal to resolution." action={<Button variant="outline" onClick={() => refetch()}><RefreshCw size={15} /> Refresh</Button>} /><div className="toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search incidents" data-testid="input-search-incidents" /></div><select className="filter-button" value={status} onChange={e => setStatus(e.target.value)} data-testid="select-filter-incidents"><option value="">All statuses</option>{['OPEN','INVESTIGATING','RECOVERING','RESOLVED','ESCALATED'].map(s => <option key={s} value={s}>{s}</option>)}</select></div>{isError ? <Failure retry={refetch} /> : isLoading ? <div className="list-stack">{[1,2,3].map(i => <Skeleton key={i} className="h-28" />)}</div> : !incidents.length ? <EmptyState icon={TriangleAlert} title={status ? 'No incidents in this state' : 'No incident data'} body={status ? 'Try another status filter.' : 'Incidents will appear when connected monitoring detects a failure.'} /> : <div className="list-stack">{incidents.map(i => <Link href={`/incidents/${i.id}`} className="incident-row" key={i.id} data-testid={`row-incident-${i.id}`}><div className={`severity-bar ${i.severity.toLowerCase()}`} /><div className="incident-content"><div className="incident-top"><span className="eyebrow">{i.type}</span><StatusPill status={i.severity} /></div><h3>{i.description}</h3><p>{apps?.find(a => a.id === i.applicationId)?.name || `Application #${i.applicationId}`} · {i.failureCount} failures · detected {new Date(i.detectedAt).toLocaleString()}</p></div><div className="incident-end"><StatusPill status={i.status} /><ChevronRight size={16} /></div></Link>)}</div>}</>;
+  const [status, setStatus] = useState<string>('');
+  const [search, setSearch] = useState<string>('');
+
+  const params = status
+    ? { status: status as any }
+    : undefined;
+
+  const {
+    data: incidentsData,
+    isLoading,
+    isError,
+    refetch,
+  } = useListIncidents(params, {
+    query: {
+      queryKey: getListIncidentsQueryKey(params),
+    },
+  });
+
+  const { data: appsData } = useListApplications();
+
+  const data = asArray<any>(incidentsData);
+  const apps = asArray<any>(appsData);
+
+  const incidents = data.filter((i: any) =>
+    `${i.type || ''} ${i.description || ''}`
+      .toLowerCase()
+      .includes(search.toLowerCase())
+  );
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="RESPOND / INCIDENTS"
+        title="Incidents"
+        body="An honest queue for production failures, recovery attempts, and verified outcomes."
+        action={
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw size={15} />
+            Refresh
+          </Button>
+        }
+      />
+
+      <div className="toolbar">
+        <div className="search-box">
+          <Search size={16} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search incidents..."
+          />
+        </div>
+
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          <option value="OPEN">Open</option>
+          <option value="RESOLVED">Resolved</option>
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div className="panel">
+          <Skeleton className="h-20 w-full" />
+        </div>
+      ) : isError ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Unable to load incidents"
+          body="The incident API could not be reached."
+        />
+      ) : !incidents.length ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="No incidents found"
+          body="There are no incidents matching the current filters."
+        />
+      ) : (
+        <div className="incident-list">
+          {incidents.map((incident: any) => {
+            const app = apps.find(
+              (a: any) => a.id === incident.applicationId
+            );
+
+            return (
+              <Link
+                key={incident.id}
+                to={`/incidents/${incident.id}`}
+                className="incident-row"
+              >
+                <div>
+                  <b>{incident.title || incident.type || 'Incident'}</b>
+                  <small>
+                    {app?.name || 'Unknown application'}
+                  </small>
+                </div>
+
+                <StatusPill status={incident.status} />
+
+                <span className="mono">
+                  {incident.createdAt
+                    ? new Date(incident.createdAt).toLocaleString()
+                    : '—'}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
 }
 
 function IncidentDetail() {
@@ -270,10 +620,121 @@ function IncidentDetail() {
 }
 
 function RecoveryActions() {
-  const { data, isLoading, isError, refetch } = useListRecoveryActions({ query: { queryKey: getListRecoveryActionsQueryKey() } }); const { data: incidents } = useListIncidents();
-  return <><PageHeader eyebrow="RESPOND / RECOVERY" title="Recovery actions" body="A complete receipt of deterministic actions taken by enabled rules." action={<Button variant="outline" onClick={() => refetch()}><RefreshCw size={15} /> Refresh</Button>} /><div className="safety-banner"><ShieldCheck size={19} /><div><b>Allowlist only</b><span>Actions are never suggested or executed by AI. If it is not in an enabled rule, it cannot run.</span></div><Link href="/recovery/rules" className="text-link" data-testid="link-recovery-rules-banner">Manage allowlist <ArrowRight size={15} /></Link></div>{isError ? <Failure retry={refetch} /> : isLoading ? <Skeleton className="h-64" /> : !data?.length ? <EmptyState icon={Zap} title="No recovery actions" body="Actions will be recorded here when an enabled rule safely responds to an incident." action={<Link href="/recovery/rules" className="btn btn-outline" data-testid="link-create-recovery-rule"><ShieldCheck size={15} /> Review rules</Link>} /> : <div className="table-card"><div className="table-head"><span>ACTION</span><span>INCIDENT</span><span>STARTED</span><span>COMPLETED</span><span>STATUS</span><span>RESULT</span></div>{data.map(a => <div className="table-row" key={a.id} data-testid={`row-recovery-action-${a.id}`}><b className="mono">{a.actionType}</b><span>{a.incidentId ? `Incident #${a.incidentId}` : 'No incident linked'}</span><span className="mono">{new Date(a.startedAt).toLocaleString()}</span><span className="mono">{a.completedAt ? new Date(a.completedAt).toLocaleString() : '—'}</span><StatusPill status={a.status} /><span>{a.result || 'No result provided'}</span></div>)}</div>}</>;
-}
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+  } = useListRecoveryActions({
+    query: {
+      queryKey: getListRecoveryActionsQueryKey(),
+    },
+  });
 
+  return (
+    <>
+      <PageHeader
+        eyebrow="RESPOND / RECOVERY"
+        title="Recovery actions"
+        body="A complete receipt of deterministic actions taken by enabled rules."
+        action={
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw size={15} />
+            Refresh
+          </Button>
+        }
+      />
+
+      <div className="safety-banner">
+        <ShieldCheck size={19} />
+
+        <div>
+          <b>Allowlist only</b>
+          <span>
+            Actions are never suggested or executed by AI. If it is not in an
+            enabled rule, it cannot run.
+          </span>
+        </div>
+
+        <Link
+          href="/recovery/rules"
+          className="text-link"
+          data-testid="link-recovery-rules-banner"
+        >
+          Manage allowlist
+          <ArrowRight size={15} />
+        </Link>
+      </div>
+
+      {isError ? (
+        <Failure retry={refetch} />
+      ) : isLoading ? (
+        <Skeleton className="h-64" />
+      ) : !data?.length ? (
+        <EmptyState
+          icon={Zap}
+          title="No recovery actions"
+          body="Actions will be recorded here when an enabled rule safely responds to an incident."
+          action={
+            <Link
+              href="/recovery/rules"
+              className="btn btn-outline"
+              data-testid="link-create-recovery-rule"
+            >
+              <ShieldCheck size={15} />
+              Review rules
+            </Link>
+          }
+        />
+      ) : (
+        <div className="table-card recovery-actions-table">
+          <div className="table-head">
+            <span>ACTION</span>
+            <span>INCIDENT</span>
+            <span>STARTED</span>
+            <span>COMPLETED</span>
+            <span>STATUS</span>
+            <span>RESULT</span>
+          </div>
+
+          {data.map((a) => (
+            <div
+              className="table-row"
+              key={a.id}
+              data-testid={`row-recovery-action-${a.id}`}
+            >
+              <b className="mono">
+                {a.actionType}
+              </b>
+
+              <span>
+                {a.incidentId
+                  ? `Incident #${a.incidentId}`
+                  : "No incident linked"}
+              </span>
+
+              <span className="mono">
+                {new Date(a.startedAt).toLocaleString()}
+              </span>
+
+              <span className="mono">
+                {a.completedAt
+                  ? new Date(a.completedAt).toLocaleString()
+                  : "—"}
+              </span>
+
+              <StatusPill status={a.status} />
+
+              <span className="recovery-result">
+                {a.result || "No result provided"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 function LegacyRecoveryRules() {
   const qc = useQueryClient(); const { data, isLoading, isError, refetch } = useListRecoveryRules({ query: { queryKey: getListRecoveryRulesQueryKey() } }); const create = useCreateRecoveryRule(); const update = useUpdateRecoveryRule(); const del = useDeleteRecoveryRule(); const [open, setOpen] = useState(false); const [editing, setEditing] = useState<any>(null);
   const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); const body: any = { name: String(f.get('name')), triggerType: String(f.get('triggerType')), threshold: Number(f.get('threshold')), actionType: String(f.get('actionType')), enabled: f.get('enabled') === 'on', cooldownSeconds: Number(f.get('cooldownSeconds')), maxAttempts: Number(f.get('maxAttempts')) }; const done = () => { setOpen(false); setEditing(null); qc.invalidateQueries({ queryKey: getListRecoveryRulesQueryKey() }); }; editing ? update.mutate({ id: editing.id, data: body }, { onSuccess: done }) : create.mutate({ data: body }, { onSuccess: done }); };
@@ -282,7 +743,13 @@ function LegacyRecoveryRules() {
 
 function RecoveryRules() {
   const qc = useQueryClient();
-  const { data, isLoading, isError, refetch } = useListRecoveryRules({ query: { queryKey: getListRecoveryRulesQueryKey() } });
+  const { data: rulesData, isLoading, isError, refetch } =
+  useListRecoveryRules({
+    query: {
+      queryKey: getListRecoveryRulesQueryKey()
+    }
+  });
+  const data = asArray<any>(rulesData);
   const create = useCreateRecoveryRule();
   const update = useUpdateRecoveryRule();
   const del = useDeleteRecoveryRule();
@@ -312,7 +779,9 @@ function RecoveryRules() {
 }
 
 function AIInsights() {
-  const { data: incidents, isLoading } = useListIncidents(); const available = incidents?.filter(i => i.status !== 'OPEN').length || 0;
+  const { data: incidentsData, isLoading } = useListIncidents();
+const incidents = asArray<any>(incidentsData);
+const available = incidents.filter(i => i.status !== 'OPEN').length;
   return <><PageHeader eyebrow="UNDERSTAND / AI" title="AI insights" body="Diagnosis-only context for incidents with enough evidence to investigate." /><div className="ai-hero"><div className="ai-symbol"><Sparkles size={24} /></div><div><span className="eyebrow">GEMINI / DIAGNOSIS ONLY</span><h2>Useful context, never autonomous action.</h2><p>AutoHeal can ask Gemini to summarize evidence and suggest prevention. It cannot execute a recovery, change a rule, or create a green status.</p></div><StatusPill status="NOT CONNECTED" /></div><div className="ai-grid"><div className="panel"><div className="panel-heading"><div><span className="eyebrow">AVAILABILITY</span><h2>Insight coverage</h2></div><Sparkles size={18} /></div>{isLoading ? <Skeleton className="h-24" /> : <><div className="big-number">{available}<small> incidents with investigation context</small></div><p className="muted-copy">AI insight availability depends on a connected Gemini integration and useful incident data. Nothing is fabricated when either is absent.</p><Link href="/settings" className="text-link" data-testid="link-configure-ai">Configure AI integration <ArrowRight size={15} /></Link></>}</div><div className="panel"><div className="panel-heading"><div><span className="eyebrow">PRINCIPLES</span><h2>How to read an insight</h2></div></div><div className="principle-list"><div><Check size={15} /><span><b>Evidence first</b><small>Every diagnosis is grounded in incident context.</small></span></div><div><Check size={15} /><span><b>Confidence is explicit</b><small>Uncertainty is shown, not smoothed away.</small></span></div><div><LockKeyhole size={15} /><span><b>Action is separate</b><small>Recovery remains inside the allowlist.</small></span></div></div></div></div></>;
 }
 

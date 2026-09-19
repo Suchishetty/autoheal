@@ -8,7 +8,7 @@ export const applicationsTable = pgTable("applications", {
   description: text("description").notNull().default(""),
   environment: text("environment").notNull(),
   baseUrl: text("base_url").notNull(),
-  status: text("status").notNull().default("NOT_CONNECTED"),
+  status: text("status").notNull().default("UNKNOWN"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

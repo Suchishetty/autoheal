@@ -22,3 +22,4 @@ export * from "./services";
 export * from "./incidents";
 export * from "./recovery";
 export * from "./monitoring";
+export * from "./ai-insights";
